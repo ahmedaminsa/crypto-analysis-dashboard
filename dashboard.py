@@ -1,22 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objs as go
-import plotly.express as px
-from datetime import datetime, timedelta
 import requests
-import json
 import time
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
 
 # تكوين الصفحة
 st.set_page_config(
-    page_title="لوحة تحكم تحليل العملات الرقمية",
+    page_title="محلل العملات الرقمية",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# تعريف نطاق العملات المدعومة
+# تعريف العملات المدعومة
 COIN_IDS = {
     "ETH": "ethereum",
     "BTC": "bitcoin",
@@ -40,7 +38,7 @@ DECISION_GUIDES = {
 }
 
 # دوال المساعدة
-@st.cache_data(ttl=300) # تخزين مؤقت لمدة 5 دقائق
+@st.cache_data(ttl=300)
 def get_price_data(coin_id, vs_currency="usd", days=90):
     """الحصول على بيانات أسعار العملة من CoinGecko"""
     url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
@@ -257,7 +255,7 @@ def analyze_crypto(symbol, prices_df):
     }
 
 def create_price_chart(symbol, prices_df, analysis):
-    """إنشاء رسم بياني للسعر مع المؤشرات"""
+    """إنشاء رسم بياني للسعر باستخدام matplotlib"""
     if prices_df.empty:
         return None
     
@@ -266,141 +264,41 @@ def create_price_chart(symbol, prices_df, analysis):
     prices_df['ma200'] = prices_df['price'].rolling(window=200).mean()
     
     # إنشاء الرسم البياني
-    fig = go.Figure()
+    fig, ax = plt.subplots(figsize=(10, 6))
     
     # إضافة خط السعر
-    fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'], 
-        y=prices_df['price'],
-        mode='lines',
-        name='السعر',
-        line=dict(color='#1E88E5', width=2)
-    ))
+    ax.plot(prices_df['timestamp'], prices_df['price'], label='السعر', color='blue', linewidth=2)
     
     # إضافة المتوسطات المتحركة
     if not prices_df['ma50'].isna().all():
-        fig.add_trace(go.Scatter(
-            x=prices_df['timestamp'],
-            y=prices_df['ma50'],
-            mode='lines',
-            name='المتوسط المتحرك 50 يوم',
-            line=dict(color='#FFA000', width=1.5, dash='dot')
-        ))
+        ax.plot(prices_df['timestamp'], prices_df['ma50'], label='المتوسط المتحرك 50 يوم', color='orange', linewidth=1.5, linestyle='--')
         
     if not prices_df['ma200'].isna().all():
-        fig.add_trace(go.Scatter(
-            x=prices_df['timestamp'],
-            y=prices_df['ma200'],
-            mode='lines',
-            name='المتوسط المتحرك 200 يوم',
-            line=dict(color='#D81B60', width=1.5, dash='dot')
-        ))
+        ax.plot(prices_df['timestamp'], prices_df['ma200'], label='المتوسط المتحرك 200 يوم', color='red', linewidth=1.5, linestyle='--')
     
-    # إضافة الأهداف السعرية إذا كانت متوفرة
+    # إضافة نقطة السعر الحالي
     if analysis:
         current_price = analysis['price']
-        short_term_target = analysis['short_term_target']
-        long_term_target = analysis['long_term_target']
-        stop_loss = analysis['stop_loss']
-        
-        # نقطة السعر الحالي
-        fig.add_trace(go.Scatter(
-            x=[prices_df['timestamp'].iloc[-1]],
-            y=[current_price],
-            mode='markers',
-            name=f'السعر الحالي: ${current_price:.2f}',
-            marker=dict(color='red', size=10)
-        ))
-        
-        # خطوط الأهداف
-        fig.add_shape(
-            type="line",
-            x0=prices_df['timestamp'].min(),
-            x1=prices_df['timestamp'].max(),
-            y0=short_term_target,
-            y1=short_term_target,
-            line=dict(color="green", width=2, dash="dash"),
-            name=f'هدف قصير المدى: ${short_term_target:.2f}'
-        )
-        
-        fig.add_shape(
-            type="line",
-            x0=prices_df['timestamp'].min(),
-            x1=prices_df['timestamp'].max(),
-            y0=long_term_target,
-            y1=long_term_target,
-            line=dict(color="purple", width=2, dash="dash"),
-            name=f'هدف طويل المدى: ${long_term_target:.2f}'
-        )
-        
-        fig.add_shape(
-            type="line",
-            x0=prices_df['timestamp'].min(),
-            x1=prices_df['timestamp'].max(),
-            y0=stop_loss,
-            y1=stop_loss,
-            line=dict(color="red", width=2, dash="dash"),
-            name=f'وقف الخسارة: ${stop_loss:.2f}'
-        )
-        
-        # إضافة تسميات للأهداف
-        fig.add_annotation(
-            x=prices_df['timestamp'].max(),
-            y=short_term_target,
-            text=f"هدف قصير: ${short_term_target:.2f} (+{((short_term_target/current_price)-1)*100:.1f}%)",
-            showarrow=True,
-            arrowhead=1,
-            ax=80,
-            ay=0,
-            bgcolor="rgba(0,255,0,0.7)",
-            font=dict(color="white")
-        )
-        
-        fig.add_annotation(
-            x=prices_df['timestamp'].max(),
-            y=long_term_target,
-            text=f"هدف طويل: ${long_term_target:.2f} (+{((long_term_target/current_price)-1)*100:.1f}%)",
-            showarrow=True,
-            arrowhead=1,
-            ax=80,
-            ay=0,
-            bgcolor="rgba(128,0,128,0.7)",
-            font=dict(color="white")
-        )
-        
-        fig.add_annotation(
-            x=prices_df['timestamp'].max(),
-            y=stop_loss,
-            text=f"وقف الخسارة: ${stop_loss:.2f} (-{((current_price-stop_loss)/current_price)*100:.1f}%)",
-            showarrow=True,
-            arrowhead=1,
-            ax=80,
-            ay=0,
-            bgcolor="rgba(255,0,0,0.7)",
-            font=dict(color="white")
-        )
+        ax.plot(prices_df['timestamp'].iloc[-1], current_price, 'ro', markersize=8, label=f'السعر الحالي: ${current_price:.2f}')
     
-    # تكوين الرسم البياني
-    fig.update_layout(
-        title=f"سعر {symbol} (USD)",
-        xaxis_title="التاريخ",
-        yaxis_title="السعر (USD)",
-        template="plotly_white",
-        legend=dict(x=0, y=1, orientation="h"),
-        height=500
-    )
+    # إعداد الرسم البياني
+    ax.set_title(f"سعر {symbol} (USD)")
+    ax.set_xlabel("التاريخ")
+    ax.set_ylabel("السعر (USD)")
+    ax.grid(True)
+    ax.legend()
     
     return fig
 
 def create_indicator_charts(symbol, prices_df):
-    """إنشاء رسومات بيانية للمؤشرات الفنية"""
+    """إنشاء رسوم بيانية للمؤشرات الفنية"""
     if prices_df.empty:
         return None, None
-        
+    
     # حساب مؤشر RSI
     rsi_values = prices_df['price'].rolling(window=14).apply(
         lambda x: calculate_rsi(pd.Series(x))
-    )
+    ).fillna(50)
     
     # حساب مؤشر MACD
     ema12 = prices_df['price'].ewm(span=12, adjust=False).mean()
@@ -410,100 +308,40 @@ def create_indicator_charts(symbol, prices_df):
     histogram = macd_line - signal_line
     
     # إنشاء رسم بياني RSI
-    rsi_fig = go.Figure()
+    fig_rsi, ax_rsi = plt.subplots(figsize=(10, 4))
     
-    rsi_fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'],
-        y=rsi_values,
-        mode='lines',
-        name='RSI',
-        line=dict(color='purple', width=2)
-    ))
+    ax_rsi.plot(prices_df['timestamp'], rsi_values, color='purple', linewidth=2)
+    ax_rsi.axhline(y=70, color='r', linestyle='-', alpha=0.3)
+    ax_rsi.axhline(y=30, color='g', linestyle='-', alpha=0.3)
     
-    # إضافة خطوط للمناطق المهمة
-    rsi_fig.add_shape(
-        type="line",
-        x0=prices_df['timestamp'].min(),
-        x1=prices_df['timestamp'].max(),
-        y0=70,
-        y1=70,
-        line=dict(color="red", width=1),
-    )
+    # تلوين المناطق
+    ax_rsi.fill_between(prices_df['timestamp'], 70, 100, color='r', alpha=0.1)
+    ax_rsi.fill_between(prices_df['timestamp'], 0, 30, color='g', alpha=0.1)
     
-    rsi_fig.add_shape(
-        type="line",
-        x0=prices_df['timestamp'].min(),
-        x1=prices_df['timestamp'].max(),
-        y0=30,
-        y1=30,
-        line=dict(color="green", width=1),
-    )
-    
-    # إضافة مناطق ملونة
-    rsi_fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'],
-        y=[70] * len(prices_df),
-        fill='tonexty',
-        fillcolor='rgba(255, 0, 0, 0.1)',
-        line=dict(width=0),
-        showlegend=False
-    ))
-    
-    rsi_fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'],
-        y=[30] * len(prices_df),
-        fill='tonexty',
-        fillcolor='rgba(0, 255, 0, 0.1)',
-        line=dict(width=0),
-        showlegend=False
-    ))
-    
-    rsi_fig.update_layout(
-        title="مؤشر القوة النسبية (RSI)",
-        xaxis_title="التاريخ",
-        yaxis_title="RSI",
-        yaxis=dict(range=[0, 100]),
-        height=250
-    )
+    ax_rsi.set_title("مؤشر القوة النسبية (RSI)")
+    ax_rsi.set_xlabel("التاريخ")
+    ax_rsi.set_ylabel("RSI")
+    ax_rsi.set_ylim(0, 100)
+    ax_rsi.grid(True)
     
     # إنشاء رسم بياني MACD
-    macd_fig = go.Figure()
+    fig_macd, ax_macd = plt.subplots(figsize=(10, 4))
     
-    # إضافة خطوط MACD
-    macd_fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'],
-        y=macd_line,
-        mode='lines',
-        name='MACD',
-        line=dict(color='blue', width=2)
-    ))
+    ax_macd.plot(prices_df['timestamp'], macd_line, label='MACD', color='blue', linewidth=2)
+    ax_macd.plot(prices_df['timestamp'], signal_line, label='إشارة', color='red', linewidth=1.5)
     
-    macd_fig.add_trace(go.Scatter(
-        x=prices_df['timestamp'],
-        y=signal_line,
-        mode='lines',
-        name='إشارة',
-        line=dict(color='red', width=1.5)
-    ))
+    # رسم الهستوجرام
+    for i in range(1, len(prices_df)):
+        color = 'g' if histogram[i] >= 0 else 'r'
+        ax_macd.bar(prices_df['timestamp'][i], histogram[i], width=1, color=color, alpha=0.6)
     
-    # إضافة الهستوجرام
-    colors = ['green' if val >= 0 else 'red' for val in histogram]
+    ax_macd.set_title("مؤشر تقارب وتباعد المتوسطات المتحركة (MACD)")
+    ax_macd.set_xlabel("التاريخ")
+    ax_macd.set_ylabel("MACD")
+    ax_macd.legend()
+    ax_macd.grid(True)
     
-    macd_fig.add_trace(go.Bar(
-        x=prices_df['timestamp'],
-        y=histogram,
-        name='الهستوجرام',
-        marker_color=colors
-    ))
-    
-    macd_fig.update_layout(
-        title="مؤشر تقارب وتباعد المتوسطات المتحركة (MACD)",
-        xaxis_title="التاريخ",
-        yaxis_title="MACD",
-        height=250
-    )
-    
-    return rsi_fig, macd_fig
+    return fig_rsi, fig_macd
 
 def create_portfolio_input():
     """إنشاء واجهة إدخال بيانات المحفظة"""
@@ -580,29 +418,29 @@ def show_market_overview():
     with col1:
         st.subheader("مؤشر الخوف والطمع")
         
-        # رسم مقياس مؤشر الخوف والطمع
-        color = "green" if market_sentiment_value > 50 else "red"
-        
-        fig = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = market_sentiment_value,
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': market_sentiment_label},
-            gauge = {
-                'axis': {'range': [0, 100]},
-                'bar': {'color': color},
-                'steps': [
-                    {'range': [0, 20], 'color': "darkred"},
-                    {'range': [20, 40], 'color': "red"},
-                    {'range': [40, 60], 'color': "gray"},
-                    {'range': [60, 80], 'color': "yellowgreen"},
-                    {'range': [80, 100], 'color': "green"}
-                ]
-            }
-        ))
-        
-        fig.update_layout(height=200)
-        st.plotly_chart(fig, use_container_width=True)
+        # عرض مقياس بسيط لمؤشر الخوف والطمع
+        if market_sentiment_value <= 20:
+            color = "darkred"
+        elif market_sentiment_value <= 40:
+            color = "red"
+        elif market_sentiment_value <= 60:
+            color = "gray"
+        elif market_sentiment_value <= 80:
+            color = "yellowgreen"
+        else:
+            color = "green"
+            
+        st.markdown(f"""
+        <div style="text-align: center;">
+            <h3 style="margin-bottom: 0;">{market_sentiment_label}</h3>
+            <div style="background: linear-gradient(to right, darkred, red, gray, yellowgreen, green); height: 20px; border-radius: 10px; margin: 10px 0;">
+                <div style="position: relative; left: {market_sentiment_value}%; transform: translateX(-50%);">
+                    <div style="width: 15px; height: 15px; background-color: white; border: 2px solid {color}; border-radius: 50%; margin-top: -7px;"></div>
+                </div>
+            </div>
+            <h4 style="margin-top: 0;">{market_sentiment_value}/100</h4>
+        </div>
+        """, unsafe_allow_html=True)
     
     # الحصول على أسعار العملات الرئيسية
     top_coins = ["BTC", "ETH", "SOL", "ADA", "XRP"]
@@ -697,14 +535,14 @@ def show_analysis_results(symbol, time_period):
     # عرض الرسوم البيانية
     st.subheader("تحليل السعر")
     price_chart = create_price_chart(symbol, prices_df, analysis)
-    st.plotly_chart(price_chart, use_container_width=True)
+    st.pyplot(price_chart)
     
     rsi_chart, macd_chart = create_indicator_charts(symbol, prices_df)
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.plotly_chart(rsi_chart, use_container_width=True)
+        st.pyplot(rsi_chart)
         
         # شرح مؤشر RSI
         rsi_value = analysis['rsi']
@@ -732,7 +570,7 @@ def show_analysis_results(symbol, time_period):
         """, unsafe_allow_html=True)
     
     with col2:
-        st.plotly_chart(macd_chart, use_container_width=True)
+        st.pyplot(macd_chart)
         
         # شرح مؤشر MACD
         macd_signal = analysis['macd']['signal']
